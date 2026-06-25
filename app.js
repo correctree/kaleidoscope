@@ -18,8 +18,21 @@ const modeInfo    = document.getElementById('mode-info');
 // ── State ────────────────────────────────────────────────
 let SIZE = 360;
 let running = false;
-const COLS_LIST = [2, 3, 4, 5, 6];
-let colsIdx = 1;
+
+// パターン定義: type='tri'(三角形) / type='radial'(放射状)
+const PATTERNS = [
+  { label: '△ 2cols',  type: 'tri',    cols: 2 },
+  { label: '△ 3cols',  type: 'tri',    cols: 3 },
+  { label: '△ 4cols',  type: 'tri',    cols: 4 },
+  { label: '△ 5cols',  type: 'tri',    cols: 5 },
+  { label: '△ 6cols',  type: 'tri',    cols: 6 },
+  { label: '✦ 6分割',  type: 'radial', segs: 6  },
+  { label: '✦ 8分割',  type: 'radial', segs: 8  },
+  { label: '✦ 10分割', type: 'radial', segs: 10 },
+  { label: '✦ 12分割', type: 'radial', segs: 12 },
+  { label: '✦ 16分割', type: 'radial', segs: 16 },
+];
+let patIdx = 1;
 
 // 音声
 let volume = 0, subBass = 0, bass = 0, mid = 0, treble = 0;
@@ -61,84 +74,91 @@ window.addEventListener('resize', resize);
 screen.orientation?.addEventListener('change', () => setTimeout(resize, 250));
 
 // ══════════════════════════════════════════════════════════
-// LUT構築 — ピクセル単位の三角形タイリング
-//
-// アイデア:
-//   出力画像の各ピクセル(px,py)に対して
-//   「どのカメラ座標を参照するか」を事前計算。
-//
-//   正三角形グリッドで画像を覆い、
-//   各ピクセルが属するセルを(row, col, up/down)で特定。
-//   セルの(row, col)のパリティと上下向きから
-//   反転(flipX, flipY)を計算し、
-//   基準三角形（中央）の対応座標を求める。
+// LUT構築 — 三角形 & 放射状パターン対応
 // ══════════════════════════════════════════════════════════
 function buildLUT() {
   const W = SIZE;
-  const cols = COLS_LIST[colsIdx];
-  const side = W / cols;          // 三角形の辺長
-  const H = side * Math.sqrt(3) / 2; // 三角形の高さ
-
+  const pat = PATTERNS[patIdx];
   const N = W * W;
   lutX = new Float32Array(N);
   lutY = new Float32Array(N);
 
-  // 基準セル: 中央の上向き三角形の重心
-  const camCol = Math.floor(cols / 2);
-  const camRow = Math.floor((W / H) / 2);
-  // 上向き▲の重心: (col+0.5)*side, (row + 1/3)*H ... 実際は(row+2/3)*H に近い
-  // ただし重心 = (上頂点 + 左下 + 右下) / 3
-  // 上頂点: (col*side+side/2, row*H), 左下: (col*side, (row+1)*H), 右下: (col*side+side, (row+1)*H)
-  const refCx = camCol * side + side / 2;
-  const refCy = camRow * H + H * 2 / 3;
+  if (pat.type === 'tri') {
+    // ── 三角形タイリング ──────────────────────────────────
+    const cols = pat.cols;
+    const side = W / cols;
+    const H = side * Math.sqrt(3) / 2;
+    const camCol = Math.floor(cols / 2);
+    const camRow = Math.floor((W / H) / 2);
+    const refCx = camCol * side + side / 2;
+    const refCy = camRow * H + H * 2 / 3;
 
-  for (let py = 0; py < W; py++) {
-    for (let px = 0; px < W; px++) {
-      const i = py * W + px;
+    for (let py = 0; py < W; py++) {
+      for (let px = 0; px < W; px++) {
+        const i = py * W + px;
+        const dx = px - W/2, dy = py - W/2;
+        if (dx*dx + dy*dy > (W/2)*(W/2)) { lutX[i]=-1; lutY[i]=-1; continue; }
 
-      // 円の外
-      const dx = px - W / 2, dy = py - W / 2;
-      if (dx * dx + dy * dy > (W / 2) * (W / 2)) {
-        lutX[i] = -1; lutY[i] = -1;
-        continue;
+        const col = Math.floor(px / side);
+        const row = Math.floor(py / H);
+        const lx = (px - col*side) / side;
+        const ly = (py - row*H) / H;
+        const isUp = (lx + ly <= 1.0);
+        const cellCx = col*side + side/2;
+        const cellCy = isUp ? row*H + H*2/3 : row*H + H/3;
+        const ox = px - cellCx, oy = py - cellCy;
+        const flipX = (col % 2 === 0) ? 1 : -1;
+        let   flipY = (row % 2 === 0) ? 1 : -1;
+        if (!isUp) flipY = -flipY;
+
+        lutX[i] = Math.max(0, Math.min(W-1, refCx + flipX*ox));
+        lutY[i] = Math.max(0, Math.min(W-1, refCy + flipY*oy));
       }
+    }
 
-      // グリッドセルを特定
-      const col = Math.floor(px / side);
-      const row = Math.floor(py / H);
+  } else {
+    // ── 放射状ミラー ──────────────────────────────────────
+    // 各ピクセルの極座標(r, θ)を求め、
+    // θ を segs等分のスライスに折り畳んでカメラ座標を返す。
+    // 奇数スライスは鏡映（θ を反転）→ 連続する万華鏡パターン
+    const segs = pat.segs;
+    const sliceAngle = (Math.PI * 2) / segs; // 1スライスの角度
+    const cx = W / 2, cy = W / 2;
 
-      // セル内ローカル座標 (0〜1)
-      const lx = (px - col * side) / side;
-      const ly = (py - row * H) / H;
+    // カメラ映像の参照範囲: 中心から上方向のスライス1枚分
+    // スライス角度の中央 = sliceAngle/2 方向を基準とする
 
-      // 上向き▲ or 下向き▽: 対角線 lx + ly = 1 で判別
-      const isUp = (lx + ly <= 1.0);
+    for (let py = 0; py < W; py++) {
+      for (let px = 0; px < W; px++) {
+        const i = py * W + px;
+        const dx = px - cx, dy = py - cy;
+        const r = Math.sqrt(dx*dx + dy*dy);
 
-      // セル重心
-      const cellCx = col * side + side / 2;
-      const cellCy = isUp
-        ? row * H + H * 2 / 3  // 上▲の重心
-        : row * H + H * 1 / 3; // 下▽の重心
+        // 円の外
+        if (r > W/2) { lutX[i]=-1; lutY[i]=-1; continue; }
 
-      // 基準セルの重心からのオフセット
-      const ox = px - cellCx;
-      const oy = py - cellCy;
+        // 極角 (0 〜 2π)
+        let theta = Math.atan2(dy, dx);
+        if (theta < 0) theta += Math.PI * 2;
 
-      // 行・列のパリティと向きで反転を決定
-      // 正三角形タイリングでは隣接セルは辺で鏡映
-      // 簡易的に: col偶奇でX反転、row偶奇でY反転、下向きでY追加反転
-      const flipX = (col % 2 === 0) ? 1 : -1;
-      let   flipY = (row % 2 === 0) ? 1 : -1;
-      if (!isUp) flipY = -flipY;
+        // どのスライスか
+        const sliceIdx = Math.floor(theta / sliceAngle);
+        // スライス内のローカル角度 (0 〜 sliceAngle)
+        let localTheta = theta - sliceIdx * sliceAngle;
 
-      let sx = refCx + flipX * ox;
-      let sy = refCy + flipY * oy;
+        // 奇数スライスは鏡映（折り返し）
+        if (sliceIdx % 2 === 1) localTheta = sliceAngle - localTheta;
 
-      sx = Math.max(0, Math.min(W - 1, sx));
-      sy = Math.max(0, Math.min(W - 1, sy));
+        // localTheta を画像座標に変換
+        // 基準スライス: θ=0〜sliceAngle の扇形
+        // 基準角度の中央方向 (sliceAngle/2) に向かう半径 r のピクセルを参照
+        const refTheta = localTheta - sliceAngle / 2; // 中央を0に
+        const sx = cx + r * Math.cos(refTheta);
+        const sy2 = cy + r * Math.sin(refTheta);
 
-      lutX[i] = sx;
-      lutY[i] = sy;
+        lutX[i] = Math.max(0, Math.min(W-1, sx));
+        lutY[i] = Math.max(0, Math.min(W-1, sy2));
+      }
     }
   }
 }
@@ -173,20 +193,20 @@ startBtn.addEventListener('click', async () => {
 
 // ── コントロール ─────────────────────────────────────────
 document.getElementById('btn-cols').addEventListener('click', () => {
-  colsIdx = (colsIdx + 1) % COLS_LIST.length;
+  patIdx = (patIdx + 1) % PATTERNS.length;
   buildLUT(); updateUI();
 });
 canvas.addEventListener('click', () => {
-  colsIdx = (colsIdx + 1) % COLS_LIST.length;
+  patIdx = (patIdx + 1) % PATTERNS.length;
   buildLUT(); tapFlash = 1.0; hueJump = 120 + Math.random()*120; updateUI();
 });
 canvas.addEventListener('touchend', e => {
   e.preventDefault();
-  colsIdx = (colsIdx + 1) % COLS_LIST.length;
+  patIdx = (patIdx + 1) % PATTERNS.length;
   buildLUT(); tapFlash = 1.0; hueJump = 120 + Math.random()*120; updateUI();
 }, { passive: false });
 function updateUI() {
-  modeInfo.textContent = `△ ${COLS_LIST[colsIdx]} cols`;
+  modeInfo.textContent = PATTERNS[patIdx].label;
 }
 
 // ── 音声解析 ─────────────────────────────────────────────
