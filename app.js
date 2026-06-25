@@ -158,7 +158,7 @@ startBtn.addEventListener('click', async () => {
     const actx = new (window.AudioContext || window.webkitAudioContext)();
     if (actx.state === 'suspended') await actx.resume();
     analyser = actx.createAnalyser();
-    analyser.fftSize = 2048; analyser.smoothingTimeConstant = 0.45; // 低いほど即応性UP
+    analyser.fftSize = 2048; analyser.smoothingTimeConstant = 0.65; // 0.45→0.65 少し滑らかに
     actx.createMediaStreamSource(micStream).connect(analyser);
     freqArray = new Uint8Array(analyser.frequencyBinCount);
     timeArray = new Uint8Array(analyser.fftSize);
@@ -196,7 +196,7 @@ function analyzeAudio() {
   analyser.getByteFrequencyData(freqArray);
   let sum = 0;
   for (let i=0;i<timeArray.length;i++){const v=(timeArray[i]-128)/128;sum+=v*v;}
-  volume = volume*0.20 + Math.min(1,Math.sqrt(sum/timeArray.length)*12)*0.80; // 即応性UP+感度UP
+  volume = volume*0.30 + Math.min(1,Math.sqrt(sum/timeArray.length)*8)*0.70; // 感度を下げる(10→8)
   const bins=freqArray.length, hzPB=22050/bins;
   const b0=Math.round(80/hzPB),b1=Math.round(250/hzPB),b2=Math.round(800/hzPB);
   const b3=Math.round(2500/hzPB),b4=Math.round(6000/hzPB);
@@ -205,13 +205,19 @@ function analyzeAudio() {
   for(let i=b0;i<b1;i++) s1+=freqArray[i];
   for(let i=b2;i<b3;i++) s3+=freqArray[i];
   for(let i=b4;i<bins;i++) s5+=freqArray[i];
-  rawSubBass=Math.min(1,(s0/Math.max(1,b0)/255)*6.5);   // 感度UP
-  rawBass   =Math.min(1,(s1/Math.max(1,b1-b0)/255)*5.5);
-  rawMid    =Math.min(1,(s3/Math.max(1,b3-b2)/255)*4.8);
-  rawTreble =Math.min(1,(s5/Math.max(1,bins-b4)/255)*7.0);
-  // スムージング係数を小さく → 即応性UP（0.xが新値、元の倍以上速い）
-  subBass=subBass*0.25+rawSubBass*0.75; bass=bass*0.30+rawBass*0.70;
-  mid=mid*0.35+rawMid*0.65; treble=treble*0.40+rawTreble*0.60;
+  rawSubBass=Math.min(1,(s0/Math.max(1,b0)/255)*4.0);   // 6.5→4.0 感度を抑える
+  rawBass   =Math.min(1,(s1/Math.max(1,b1-b0)/255)*3.5); // 5.5→3.5
+  rawMid    =Math.min(1,(s3/Math.max(1,b3-b2)/255)*3.0); // 4.8→3.0
+  rawTreble =Math.min(1,(s5/Math.max(1,bins-b4)/255)*4.5); // 7.0→4.5
+
+  // アタック速く・リリース遅い非対称スムージング
+  // 音が来たとき素早く反応、音が消えたときゆっくり戻る
+  // → 無音時は落ち着いており、音声時だけ大きく変化する
+  const atk = 0.70, rel = 0.12; // attack係数, release係数
+  subBass = rawSubBass > subBass ? subBass*(1-atk)+rawSubBass*atk : subBass*(1-rel)+rawSubBass*rel;
+  bass    = rawBass    > bass    ? bass*(1-atk)+rawBass*atk       : bass*(1-rel)+rawBass*rel;
+  mid     = rawMid     > mid     ? mid*(1-atk)+rawMid*atk         : mid*(1-rel)+rawMid*rel;
+  treble  = rawTreble  > treble  ? treble*(1-atk)+rawTreble*atk   : treble*(1-rel)+rawTreble*rel;
   bassHist[histIdx++%HIST]=rawSubBass;
   let avg=0; for(let i=0;i<HIST;i++) avg+=bassHist[i]; avg/=HIST;
   if(beatCooldown>0) beatCooldown--;
@@ -228,10 +234,10 @@ function loop() {
   if (!running) return;
   analyzeAudio();
 
-  colorPhase+=0.015+volume*0.15+bass*0.20;  // 位相速度UP
-  distPhase +=0.045+mid*0.30+subBass*0.25;
-  distPhase2+=0.030+treble*0.35+(bass+subBass)*0.15;
-  hueBase   +=0.012+volume*0.08+bass*0.12;
+  colorPhase+=0.006+volume*0.12+bass*0.18;  // ベース速度を遅く、音声時に加速
+  distPhase +=0.018+mid*0.28+subBass*0.22;
+  distPhase2+=0.012+treble*0.32+(bass+subBass)*0.14;
+  hueBase   +=0.004+volume*0.07+bass*0.10;
   hueJump   *=0.92;
 
   if(beatActive) beatRingAlpha=1.0;
@@ -262,7 +268,7 @@ function loop() {
   const out=outData.data;
 
   const t=colorPhase;
-  const waveStr=(rawSubBass*0.55+rawBass*0.40+rawMid*0.30)*W*0.20; // 歪み強度を大幅UP
+  const waveStr=(rawSubBass*0.40+rawBass*0.28+rawMid*0.20)*W*0.16; // 歪み強度を少し抑える
 
   for(let py=0;py<W;py++){
     for(let px=0;px<W;px++){
