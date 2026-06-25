@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#000000">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Voice Kaleidoscope">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <title>Voice Kaleidoscope</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+    html,body{width:100%;height:100%;background:#000;overflow:hidden;
+      font-family:-apple-system,BlinkMacSystemFont,'Hiragino Sans',sans-serif;}
+    #app{display:flex;flex-direction:column;align-items:center;width:100%;height:100%;}
+    video{display:none;}
+    #start-screen{display:flex;flex-direction:column;align-items:center;justify-content:center;
+      gap:18px;width:100%;height:100%;padding:40px 32px;}
+    #start-icon{font-size:60px;line-height:1;}
+    #start-title{color:#fff;font-size:22px;font-weight:300;letter-spacing:.2em;}
+    #start-sub{color:rgba(255,255,255,.42);font-size:13px;text-align:center;line-height:1.75;max-width:280px;}
+    #start-btn{margin-top:8px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);
+      color:#fff;padding:15px 40px;border-radius:50px;font-size:16px;cursor:pointer;letter-spacing:.08em;}
+    #start-btn:active{background:rgba(255,255,255,.2);}
+    #start-error{color:rgba(255,110,110,.85);font-size:12px;text-align:center;
+      max-width:280px;line-height:1.65;display:none;white-space:pre-line;}
+    #main-view{display:none;flex-direction:column;align-items:center;width:100%;height:100%;}
+    #hud{width:100%;padding:10px 20px 4px;display:flex;align-items:center;gap:10px;flex-shrink:0;}
+    #mic-icon{color:rgba(255,255,255,.35);font-size:13px;}
+    #vol-track{flex:1;height:3px;background:rgba(255,255,255,.1);border-radius:2px;overflow:hidden;}
+    #vol-fill{height:100%;width:0%;background:linear-gradient(90deg,#7f77dd,#ed93b1,#ef9f27);
+      border-radius:2px;transition:width .04s linear;}
+    #vol-num{color:rgba(255,255,255,.35);font-size:10px;min-width:26px;text-align:right;}
+    #canvas-wrap{position:relative;width:100%;flex:1;display:flex;align-items:center;
+      justify-content:center;min-height:0;}
+    #canvas{display:block;border-radius:50%;cursor:pointer;touch-action:manipulation;}
+    #beat-ring{position:absolute;border-radius:50%;border:2px solid transparent;pointer-events:none;}
+    #mode-info{color:rgba(255,255,255,.35);font-size:11px;text-align:center;
+      padding:6px 0 4px;letter-spacing:.06em;flex-shrink:0;}
+    #controls{width:100%;padding:6px 16px max(14px,env(safe-area-inset-bottom,14px));
+      display:flex;gap:8px;justify-content:center;flex-shrink:0;}
+    .btn{background:rgba(255,255,255,.08);border:.5px solid rgba(255,255,255,.2);
+      color:rgba(255,255,255,.8);padding:9px 20px;border-radius:20px;
+      font-size:13px;cursor:pointer;white-space:nowrap;}
+    .btn:active{background:rgba(255,255,255,.2);}
+    #install-banner{position:fixed;bottom:max(20px,env(safe-area-inset-bottom,20px));
+      left:50%;transform:translateX(-50%);background:rgba(20,15,40,.95);
+      border:.5px solid rgba(180,150,255,.3);color:rgba(255,255,255,.85);
+      font-size:13px;padding:11px 18px;border-radius:14px;
+      display:none;align-items:center;gap:12px;z-index:100;max-width:calc(100% - 32px);}
+    #install-btn{background:rgba(180,150,255,.18);border:.5px solid rgba(180,150,255,.4);
+      color:#c8b4ff;padding:6px 14px;border-radius:10px;font-size:12px;cursor:pointer;}
+    #install-close{color:rgba(255,255,255,.3);font-size:18px;cursor:pointer;line-height:1;}
+  </style>
+</head>
+<body>
+<div id="app">
+  <video id="video" autoplay playsinline muted></video>
+  <div id="start-screen">
+    <div id="start-icon">🔮</div>
+    <div id="start-title">Voice Kaleidoscope</div>
+    <div id="start-sub">カメラと声・音楽に反応する三角形万華鏡。<br>カメラとマイクの使用を許可してください。</div>
+    <button id="start-btn">起動する</button>
+    <div id="start-error"></div>
+  </div>
+  <div id="main-view">
+    <div id="hud">
+      <span id="mic-icon">🎤</span>
+      <div id="vol-track"><div id="vol-fill"></div></div>
+      <span id="vol-num">0</span>
+    </div>
+    <div id="canvas-wrap">
+      <canvas id="canvas"></canvas>
+      <div id="beat-ring"></div>
+    </div>
+    <div id="mode-info">△ 3 cols</div>
+    <div id="controls">
+      <button class="btn" id="btn-cols">△ 分割数</button>
+    </div>
+  </div>
+  <div id="install-banner">
+    <span>📲 ホーム画面に追加できます</span>
+    <button id="install-btn">追加</button>
+    <span id="install-close">×</span>
+  </div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
