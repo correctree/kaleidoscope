@@ -196,7 +196,7 @@ function analyzeAudio() {
   analyser.getByteFrequencyData(freqArray);
   let sum = 0;
   for (let i=0;i<timeArray.length;i++){const v=(timeArray[i]-128)/128;sum+=v*v;}
-  volume = volume*0.30 + Math.min(1,Math.sqrt(sum/timeArray.length)*8)*0.70; // 感度を下げる(10→8)
+  volume = volume*0.30 + Math.min(1,Math.sqrt(sum/timeArray.length)*4)*0.70; // 感度をさらに下げる(8→4)
   const bins=freqArray.length, hzPB=22050/bins;
   const b0=Math.round(80/hzPB),b1=Math.round(250/hzPB),b2=Math.round(800/hzPB);
   const b3=Math.round(2500/hzPB),b4=Math.round(6000/hzPB);
@@ -205,15 +205,13 @@ function analyzeAudio() {
   for(let i=b0;i<b1;i++) s1+=freqArray[i];
   for(let i=b2;i<b3;i++) s3+=freqArray[i];
   for(let i=b4;i<bins;i++) s5+=freqArray[i];
-  rawSubBass=Math.min(1,(s0/Math.max(1,b0)/255)*4.0);   // 6.5→4.0 感度を抑える
-  rawBass   =Math.min(1,(s1/Math.max(1,b1-b0)/255)*3.5); // 5.5→3.5
-  rawMid    =Math.min(1,(s3/Math.max(1,b3-b2)/255)*3.0); // 4.8→3.0
-  rawTreble =Math.min(1,(s5/Math.max(1,bins-b4)/255)*4.5); // 7.0→4.5
+  rawSubBass=Math.min(1,Math.max(0,(s0/Math.max(1,b0)/255)*2.5 - 0.05));  // ゲイン大幅減+無音フロア除去
+  rawBass   =Math.min(1,Math.max(0,(s1/Math.max(1,b1-b0)/255)*2.0 - 0.04));
+  rawMid    =Math.min(1,Math.max(0,(s3/Math.max(1,b3-b2)/255)*1.8 - 0.04));
+  rawTreble =Math.min(1,Math.max(0,(s5/Math.max(1,bins-b4)/255)*2.8 - 0.05));
 
-  // アタック速く・リリース遅い非対称スムージング
-  // 音が来たとき素早く反応、音が消えたときゆっくり戻る
-  // → 無音時は落ち着いており、音声時だけ大きく変化する
-  const atk = 0.70, rel = 0.12; // attack係数, release係数
+  // アタック速く・リリース非常に遅い非対称スムージング
+  const atk = 0.70, rel = 0.05; // release をさらに遅く(0.12→0.05)→無音時にほぼ0まで戻る
   subBass = rawSubBass > subBass ? subBass*(1-atk)+rawSubBass*atk : subBass*(1-rel)+rawSubBass*rel;
   bass    = rawBass    > bass    ? bass*(1-atk)+rawBass*atk       : bass*(1-rel)+rawBass*rel;
   mid     = rawMid     > mid     ? mid*(1-atk)+rawMid*atk         : mid*(1-rel)+rawMid*rel;
@@ -234,10 +232,10 @@ function loop() {
   if (!running) return;
   analyzeAudio();
 
-  colorPhase+=0.006+volume*0.12+bass*0.18;  // ベース速度を遅く、音声時に加速
-  distPhase +=0.018+mid*0.28+subBass*0.22;
-  distPhase2+=0.012+treble*0.32+(bass+subBass)*0.14;
-  hueBase   +=0.004+volume*0.07+bass*0.10;
+  colorPhase+=0.001+volume*0.14+bass*0.20;  // ベース速度をほぼゼロに→無音時は静止
+  distPhase +=0.001+mid*0.32+subBass*0.26;
+  distPhase2+=0.001+treble*0.36+(bass+subBass)*0.16;
+  hueBase   +=0.001+volume*0.08+bass*0.12;
   hueJump   *=0.92;
 
   if(beatActive) beatRingAlpha=1.0;
